@@ -29,7 +29,7 @@ if __name__ == "__main__":
     if not driver:
         exit()
 
-    print("\n\n Open the chapter in the browser and manually bypass Cloudflare.")
+    print("\n\nOpen the chapter in the browser and manually bypass Cloudflare.")
     driver.get(chapter_url)
 
     while "Just a moment..." in driver.title:
