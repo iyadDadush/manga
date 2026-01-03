@@ -1,6 +1,7 @@
 import base64
 import os
 import time
+from math import ceil
 
 
 def fetch_images(
@@ -9,25 +10,16 @@ def fetch_images(
     chapter_number,
     next_chapter_selector,
     image_url_prefix,
-    retries=10,
+    chunk_size=5,
 ):
+    driver.set_script_timeout(60*5)
     start_time = time.time()
-    print(
-        f"\n⚡ Opening chapter {chapter_number} " f"| Time: {time.strftime('%H:%M:%S')}"
-    )
 
-    for attempt in range(1, retries + 1):
-        try:
-            driver.get(chapter_url)
-            time.sleep(2)
-            break
-        except:
-            print(f"⚠ Failed to load chapter page (attempt {attempt}/{retries})")
-            if attempt == retries:
-                print("❌ Unable to open chapter page.")
-                return [], None
-            time.sleep(2)
+    print(f"\n⚡ Opening chapter {chapter_number}")
+    driver.get(chapter_url)
+    time.sleep(2)
 
+    # الفصل التالي
     next_chapter_url = None
     try:
         next_button = driver.find_element("css selector", next_chapter_selector)
@@ -35,15 +27,18 @@ def fetch_images(
     except:
         print("⚠ Next chapter button not found.")
 
-    image_elements = driver.find_elements("css selector", "img")
-    image_urls = [
-        img.get_attribute("src") for img in image_elements if img.get_attribute("src")
-    ]
-
-    image_urls = [url for url in image_urls if url.startswith(image_url_prefix)]
+    # روابط الصور
+    image_urls = driver.execute_script(
+        """
+        return Array.from(document.images)
+            .map(img => img.src)
+            .filter(src => src.startsWith(arguments[0]));
+        """,
+        image_url_prefix,
+    )
 
     if not image_urls:
-        print("❌ No images found — chapter may not exist.")
+        print("❌ No images found.")
         return [], next_chapter_url
 
     print(f"🔍 Found {len(image_urls)} images")
@@ -53,49 +48,49 @@ def fetch_images(
 
     downloaded_images = []
 
-    for index, img_url in enumerate(image_urls, start=1):
-        print(f"⬇ Downloading image {index}/{len(image_urls)}: {img_url}")
+    # تقسيم إلى دفعات
+    for batch in range(0, len(image_urls), chunk_size):
+        urls_chunk = image_urls[batch : batch + chunk_size]
+        print(
+            f"⬇ Batch {batch//chunk_size + 1}/"
+            f"{ceil(len(image_urls)/chunk_size)}"
+        )
 
-        image_data_url = None
-        for attempt in range(1, retries + 1):
-            try:
-                driver.get(img_url)
-                time.sleep(1)
-                image_data_url = driver.execute_script(
-                    """
-                    const img = document.querySelector('img');
-                    if (!img) return null;
+        images_base64 = driver.execute_async_script(
+            """
+            const urls = arguments[0];
+            const done = arguments[1];
 
-                    const canvas = document.createElement('canvas');
-                    canvas.width = img.naturalWidth;
-                    canvas.height = img.naturalHeight;
-                    const ctx = canvas.getContext('2d');
-                    ctx.drawImage(img, 0, 0);
-
-                    return canvas.toDataURL('image/jpeg');
-                    """
+            Promise.all(
+                urls.map(url =>
+                    fetch(url)
+                        .then(r => r.blob())
+                        .then(blob => new Promise(res => {
+                            const reader = new FileReader();
+                            reader.onload = () => res(reader.result);
+                            reader.readAsDataURL(blob);
+                        }))
                 )
-                if image_data_url:
-                    break
-            except:
-                pass
+            ).then(done).catch(() => done(null));
+            """,
+            urls_chunk,
+        )
 
-            print(f"⚠ Failed to load image (attempt {attempt}/{retries}): {img_url}")
-
-        if not image_data_url:
-            print("❌ Corrupted image detected — skipping entire chapter.")
+        if not images_base64:
+            print("❌ Batch failed — skipping chapter")
             return [], next_chapter_url
 
-        _, encoded_data = image_data_url.split(",", 1)
-        image_bytes = base64.b64decode(encoded_data)
+        for data_url in images_base64:
+            header, encoded = data_url.split(",", 1)
+            ext = "jpg" if "jpeg" in header else "png"
 
-        image_path = f"{chapter_folder}/{index}.jpg"
-        with open(image_path, "wb") as file:
-            file.write(image_bytes)
+            image_path = f"{chapter_folder}/{len(downloaded_images)+1:03}.{ext}"
+            with open(image_path, "wb") as f:
+                f.write(base64.b64decode(encoded))
 
-        downloaded_images.append(image_path)
+            downloaded_images.append(image_path)
 
     elapsed = int(time.time() - start_time)
-    print(f"✅ Chapter {chapter_number} completed " f"| Elapsed time: {elapsed}s")
+    print(f"✅ Chapter {chapter_number} done in {elapsed}s")
 
     return downloaded_images, next_chapter_url

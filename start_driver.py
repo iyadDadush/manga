@@ -6,27 +6,30 @@ from webdriver_manager.chrome import ChromeDriverManager
 
 
 def start_driver():
-    try:
-        chrome_options = Options()
-        chrome_options.add_argument("--disable-blink-features=AutomationControlled")
-        chrome_options.add_argument("--disable-dev-shm-usage")
-        chrome_options.add_argument("--no-sandbox")
-        chrome_options.page_load_strategy = "eager"
+    chrome_options = Options()
 
-        service = Service(ChromeDriverManager().install())
-        driver = webdriver.Chrome(service=service, options=chrome_options)
+    # 🚫 تعطيل تحميل الصور
+    prefs = {
+        "profile.managed_default_content_settings.images": 2
+    }
+    chrome_options.add_experimental_option("prefs", prefs)
 
-        stealth(
-            driver,
-            languages=["en-US", "en"],
-            vendor="Google Inc.",
-            platform="Win32",
-            webgl_vendor="Intel Inc.",
-            renderer="Intel Iris OpenGL Engine",
-            fix_hairline=True,
-        )
-        return driver
+    chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+    chrome_options.add_argument("--disable-dev-shm-usage")
+    chrome_options.add_argument("--no-sandbox")
+    chrome_options.page_load_strategy = "eager"
 
-    except Exception as error:
-        print("❌ Failed to start Chrome:", error)
-        return None
+    service = Service(ChromeDriverManager().install())
+    driver = webdriver.Chrome(service=service, options=chrome_options)
+
+    stealth(
+        driver,
+        languages=["en-US", "en"],
+        vendor="Google Inc.",
+        platform="Win32",
+        webgl_vendor="Intel Inc.",
+        renderer="Intel Iris OpenGL Engine",
+        fix_hairline=True,
+    )
+
+    return driver
